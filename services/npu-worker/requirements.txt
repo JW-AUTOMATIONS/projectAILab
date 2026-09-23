@@ -1,0 +1,8 @@
+# openvino-genai pulls matching openvino + openvino-tokenizers wheels.
+# TextEmbeddingPipeline needs >= 2025.2; NPU support for it landed later, so keep this recent.
+openvino-genai>=2025.3
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+numpy>=1.26
+huggingface_hub>=0.24

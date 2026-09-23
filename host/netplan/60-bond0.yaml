@@ -1,0 +1,30 @@
+# Bond both Intel I226-V ports (igc driver) with 802.3ad/LACP.
+#
+#   ip -br link                      # find the two I226-V names, edit below
+#   sudo install -m 600 host/netplan/60-bond0.yaml /etc/netplan/
+#   sudo netplan try                 # auto-reverts after 120 s if you lose access
+#
+# Requires an LACP-capable switch with both ports in one LAG. Without that,
+# change mode to active-backup (failover only, no switch config needed).
+#
+# Hashing is per flow: one client connection never exceeds 2.5 Gb/s; the 5 Gb/s
+# aggregate only shows up with several clients or parallel transfers.
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp3s0:
+      dhcp4: false
+      dhcp6: false
+    enp4s0:
+      dhcp4: false
+      dhcp6: false
+  bonds:
+    bond0:
+      interfaces: [enp3s0, enp4s0]
+      parameters:
+        mode: 802.3ad
+        lacp-rate: fast
+        mii-monitor-interval: 100
+        transmit-hash-policy: layer3+4
+      dhcp4: true
