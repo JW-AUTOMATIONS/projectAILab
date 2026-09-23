@@ -117,7 +117,7 @@ GenAI's `TextEmbeddingPipeline` and `WhisperPipeline`.
 * On the NPU, embeddings use static shapes (`pad_to_max_length`,
   `batch_size=1`), which the NPU compiler requires.
 * Hugging Face repos that are not already OpenVINO IR are exported once with
-  `optimum-cli` and cached in the `ov-models` volume. The compiled NPU blobs go
+  `optimum-cli` and cached under `MODELS_DIR/openvino`. The compiled NPU blobs go
   in `OV_CACHE_DIR`, so first-inference latency is only paid once.
 
 ## Networking

@@ -25,7 +25,9 @@ if have dmidecode && [[ $EUID -eq 0 ]]; then
   [[ -n $speeds ]] && pass "DIMM speed: $speeds (DDR5-5600 dual channel ~= 89.6 GB/s peak)"
 fi
 swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
-((swap_kb > 0)) && warn "swap is enabled; a model spilling to swap is far slower than mmap from NVMe" || pass "no swap"
+swappiness=$(cat /proc/sys/vm/swappiness)
+if ((swap_kb > 0 && swappiness > 10)); then warn "swap on with vm.swappiness=$swappiness; the installer sets 10 so model pages stay in RAM"
+else pass "swap $((swap_kb / 1024)) MiB, swappiness $swappiness"; fi
 
 section "NVIDIA RTX 5060 Ti"
 if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then
@@ -69,7 +71,7 @@ else
   fail "/dev/accel/accel0 missing (modprobe intel_vpu; check dmesg | grep -i vpu)"
 fi
 [[ -d /sys/module/intel_vpu ]] && pass "intel_vpu loaded" || warn "intel_vpu module not loaded"
-compgen -G '/lib/firmware/intel/vpu/vpu_37xx*' >/dev/null \
+compgen -G '/lib/firmware/updates/intel/vpu/vpu_37xx*' >/dev/null || compgen -G '/lib/firmware/intel/vpu/vpu_37xx*' >/dev/null \
   && pass "NPU firmware present" || warn "no NPU 37xx (Meteor Lake) firmware in /lib/firmware/intel/vpu - install intel-fw-npu or a newer linux-firmware"
 
 section "Storage / network"

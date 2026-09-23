@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q shellcheck yamllint ffmpeg
+
+      - name: shellcheck
+        run: |
+          shellcheck -x install.sh
+          shellcheck -s bash -x installer/lib.sh installer/stages/*.sh \
+            scripts/ailab scripts/bench.sh host/scripts/*.sh
+
+      - name: yamllint
+        run: >-
+          yamllint -d '{extends: default, rules: {line-length: {max: 120},
+          document-start: disable, truthy: disable, comments: {min-spaces-from-content: 1}}}'
+          compose.yaml host/netplan/60-bond0.yaml .github/workflows/ci.yml
+
+      - name: compose config
+        run: |
+          cp .env.example .env
+          host/scripts/gen-env.sh --write .env
+          grep -q '^RENDER_GID=[0-9]' .env || sed -i 's/^RENDER_GID=.*/RENDER_GID=109/' .env
+          docker compose config -q
+          docker compose --profile anythingllm config -q
+
+      - name: installer dry run
+        run: ./install.sh --dry-run
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: npu-worker tests
+        working-directory: services/npu-worker
+        run: |
+          pip install -r requirements.txt pytest httpx
+          pytest -q

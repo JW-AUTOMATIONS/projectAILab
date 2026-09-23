@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Day-2 operations for the AI Lab stack (installed as /usr/local/bin/ailab).
+#
+#   ailab status            containers, health, GPU/NPU usage
+#   ailab logs [service]    follow logs (llm-main, llm-aux, npu-worker, open-webui, ...)
+#   ailab restart [service] restart everything or one service
+#   ailab stop | start      stop/start the whole stack
+#   ailab bench             prompt/generation speed of both LLMs
+#   ailab check             host preflight + health (sudo)
+#   ailab edit              edit .env, then apply it
+#   ailab update            re-pull images, rebuild llama.cpp at the newest release, restart
+set -euo pipefail
+
+DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+cd "$DIR"
+
+compose() {
+  if docker info >/dev/null 2>&1; then docker compose "$@"; else sudo docker compose "$@"; fi
+}
+
+case ${1:-status} in
+  status)
+    compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Health}}\t{{.Ports}}'
+    echo
+    if command -v nvidia-smi >/dev/null; then
+      nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw --format=csv
+    fi
+    echo
+    curl -fsS --max-time 3 http://127.0.0.1:8083/health 2>/dev/null | sed 's/^/npu-worker devices: /' || echo "npu-worker: not up"
+    echo
+    free -h | head -2
+    ;;
+  logs) shift; compose logs -f --tail 200 "$@" ;;
+  restart) shift; compose restart "$@" ;;
+  stop) sudo systemctl stop ailab.service ;;
+  start) sudo systemctl start ailab.service ;;
+  bench) shift; "$DIR/scripts/bench.sh" "$@" ;;
+  check) sudo "$DIR/install.sh" verify ;;
+  edit)
+    "${EDITOR:-nano}" "$DIR/.env"
+    compose up -d --remove-orphans
+    ;;
+  update)
+    if [[ -d $DIR/.git ]]; then git -C "$DIR" pull --ff-only || echo "git pull failed; continuing with the local copy" >&2; fi
+    # Unpin llama.cpp so the stack stage resolves the newest release again.
+    sed -i 's/^LLAMA_CPP_REF=.*/LLAMA_CPP_REF=master/' "$DIR/.env"
+    sudo BUILD_IMAGES=1 START_STACK=1 "$DIR/install.sh" stack
+    ;;
+  -h | --help | help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "unknown command: $1 (ailab help)" >&2; exit 2 ;;
+esac

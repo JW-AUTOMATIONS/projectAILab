@@ -1,8 +1,9 @@
 # AI Lab: heterogeneous inference stack for Core Ultra 9 185H + RTX 5060 Ti + 96 GB DDR5.
 #
+# Normally installed and managed by ./install.sh (see docs/INSTALL.md), which
+# writes .env and runs this under the ailab.service systemd unit. By hand:
 #   cp .env.example .env && host/scripts/gen-env.sh --write .env
-#   docker compose up -d                      # core stack
-#   docker compose --profile anythingllm up -d  # + AnythingLLM
+#   docker compose up -d        # add anythingllm to COMPOSE_PROFILES in .env for AnythingLLM
 #
 # Silicon map (see docs/ARCHITECTURE.md):
 #   llm-main     RTX 5060 Ti + DDR5 (MoE experts on CPU)  pinned to P-cores
@@ -41,9 +42,14 @@ services:
     cpuset: ${MAIN_CPUSET:?run host/scripts/gen-env.sh}
     ulimits:
       memlock: -1
-    volumes:
+    volumes: &llama-volumes
+      # Everything large lives under MODELS_DIR (the data disk when the installer set one up).
       - ${MODELS_DIR:-./models}:/models
-      - llama-cache:/root/.cache/llama.cpp
+      - ${MODELS_DIR:-./models}/llama.cpp:/root/.cache/llama.cpp
+      - ${MODELS_DIR:-./models}/huggingface:/root/.cache/huggingface
+    environment: &llama-env
+      LLAMA_CACHE: /root/.cache/llama.cpp
+      HF_TOKEN: ${HF_TOKEN:-}
     # -ngl 999 puts every layer's attention/norms/KV on the GPU; --n-cpu-moe N
     # then keeps the expert FFN weights of the first N layers in system RAM.
     # For dense models --n-cpu-moe is a no-op: lower -ngl instead.
@@ -71,11 +77,8 @@ services:
       - ${INTEL_RENDER_NODE:-/dev/dri/renderD128}:/dev/dri/renderD128
     group_add:
       - "${RENDER_GID:?run host/scripts/gen-env.sh}"
-    volumes:
-      - ${MODELS_DIR:-./models}:/models
-      - llama-cache:/root/.cache/llama.cpp
-    environment:
-      LLAMA_CACHE: /root/.cache/llama.cpp
+    volumes: *llama-volumes
+    environment: *llama-env
     command: >-
       ${AUX_MODEL_ARGS:?set AUX_MODEL_ARGS in .env}
       --alias aux
@@ -93,6 +96,7 @@ services:
       context: services/npu-worker
       args:
         NPU_DRIVER_TAG: ${NPU_DRIVER_TAG:-latest}
+        INTEL_GPU_PPA: ${INTEL_GPU_PPA:-ppa:kobuk-team/intel-graphics}
         WITH_EXPORTER: ${NPU_WITH_EXPORTER:-1}
     image: ailab/npu-worker:local
     restart: unless-stopped
@@ -102,8 +106,8 @@ services:
     group_add:
       - "${RENDER_GID:?run host/scripts/gen-env.sh}"
     volumes:
-      - ov-models:/models
-      - hf-cache:/root/.cache/huggingface
+      - ${MODELS_DIR:-./models}/openvino:/models
+      - ${MODELS_DIR:-./models}/huggingface:/root/.cache/huggingface
     environment:
       EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-base-en-v1.5}
       EMBED_POOLING: ${EMBED_POOLING:-cls}
@@ -167,8 +171,5 @@ services:
       - "${WEBUI_BIND_ADDR:-0.0.0.0}:${ANYTHINGLLM_PORT:-3001}:3001"
 
 volumes:
-  llama-cache:
-  ov-models:
-  hf-cache:
   open-webui:
   anythingllm:

@@ -1,0 +1,72 @@
+# Installer settings. Copy to install.conf (or /etc/ailab/install.conf) and edit.
+# Every value can also be given as an environment variable: sudo VAR=value ./install.sh
+# Defaults are shown; commented-out values are disabled.
+
+# Account that will own /opt/ailab and be added to docker/render/video.
+# Defaults to the user who ran sudo.
+#AILAB_USER=jordan
+
+# Where the stack is installed and run from (systemd unit ailab.service).
+AILAB_DIR=/opt/ailab
+
+# --- Kernel / drivers --------------------------------------------------------------
+# Ubuntu HWE kernel: newest Meteor Lake iGPU/NPU support, and it gets
+# Canonical-signed NVIDIA modules (so Secure Boot keeps working).
+INSTALL_HWE_KERNEL=1
+# NVIDIA branch: "auto" picks the ubuntu-drivers recommendation, otherwise the
+# newest open branch >= 570 with signed prebuilt modules. Or pin one, e.g. 580.
+NVIDIA_DRIVER_BRANCH=auto
+# Stop unattended-upgrades from updating the NVIDIA driver under a running
+# system ("Driver/library version mismatch" until the next reboot).
+HOLD_NVIDIA_AUTOUPDATES=1
+# Desktop installs only: keep the desktop on the Arc iGPU so all VRAM stays free
+# for models (plug monitors into the motherboard outputs). "" = leave as is.
+PRIME_MODE=on-demand
+# Intel's PPA for current Arc compute/media + Level Zero (needed by the NPU driver).
+INTEL_GPU_PPA=ppa:kobuk-team/intel-graphics
+# intel/linux-npu-driver release tag, e.g. v1.24.0. "latest" is resolved once and
+# pinned into .env so the container matches the host.
+NPU_DRIVER_TAG=latest
+
+# --- Storage -------------------------------------------------------------------------
+# Everything big (model weights, caches, docker images) goes under DATA_ROOT.
+DATA_ROOT=/srv/ai
+# Optional: dedicate the second NVMe to DATA_ROOT. THE DISK IS WIPED unless it
+# already carries a filesystem labelled "ailab-data". Prefer a /dev/disk/by-id/ path:
+#   ls -l /dev/disk/by-id/ | grep nvme
+#MODELS_DISK=/dev/disk/by-id/nvme-CT1000P3PSSD8_XXXXXXXXXXXX
+MODELS_DISK=
+# Without MODELS_DISK: grow an LVM root (Ubuntu Server gives it ~100 GB) to fill
+# the rest of its volume group so the models fit.
+EXTEND_ROOT_LV=1
+# Put docker's data-root under DATA_ROOT as well.
+DOCKER_DATA_ON_DATA_ROOT=1
+
+# --- Network ---------------------------------------------------------------------------
+# Bond the two I226-V ports. Off by default: needs LACP on the switch for 802.3ad.
+BOND_ENABLE=0
+BOND_MODE=802.3ad              # or active-backup (no switch config needed)
+BOND_INTERFACES=               # auto-detected (igc driver) when empty, e.g. "enp3s0 enp4s0"
+BOND_ADDRESS=                  # empty = DHCP, or e.g. 192.168.1.50/24
+BOND_GATEWAY=
+BOND_DNS="1.1.1.1 9.9.9.9"
+# Apply immediately. Leave 0 when installing over SSH on one of those ports and
+# run `sudo netplan try` from the console instead.
+BOND_APPLY=0
+
+# --- Tuning ------------------------------------------------------------------------------
+# intel_pstate energy/performance preference: performance | balance_performance
+CPU_EPP=performance
+# Mask suspend/hibernate: this is a server.
+DISABLE_SLEEP=1
+
+# --- Stack -------------------------------------------------------------------------------
+# Build the images during install (the CUDA llama.cpp build takes 10-30 min).
+BUILD_IMAGES=1
+# Start the stack at the end when no reboot is pending (it always starts on boot).
+START_STACK=1
+# Reboot automatically at the end if drivers or the kernel changed.
+AUTO_REBOOT=0
+# Optional: token for gated Hugging Face models and GitHub API rate limits.
+HF_TOKEN=
+GITHUB_TOKEN=

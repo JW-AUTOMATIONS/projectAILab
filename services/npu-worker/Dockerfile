@@ -1,13 +1,14 @@
 # NPU worker: OpenVINO GenAI embeddings + Whisper on the Intel AI Boost NPU.
 #
 # The host supplies the kernel driver (intel_vpu) and NPU firmware; the container
-# needs the matching user-space pieces: the Level Zero loader and Intel's NPU
-# UMD/compiler from https://github.com/intel/linux-npu-driver. Keep NPU_DRIVER_TAG
-# in step with the firmware installed on the host (see docs/ARCHITECTURE.md).
+# needs the matching user-space pieces: the Level Zero loader (Intel PPA) and
+# Intel's NPU UMD/compiler from https://github.com/intel/linux-npu-driver. install.sh pins
+# NPU_DRIVER_TAG to the release it installed on the host, so both sides match.
 FROM ubuntu:24.04
 
 ARG NPU_DRIVER_TAG=latest
-ARG LEVEL_ZERO_TAG=latest
+# Same PPA as the host (install.sh intel-gpu stage) so both use one Level Zero.
+ARG INTEL_GPU_PPA=ppa:kobuk-team/intel-graphics
 # 1 = also install optimum-intel + CPU torch so non-OpenVINO HF repos are
 # converted on first start. 0 = smaller image; point *_MODEL at *-ov repos.
 ARG WITH_EXPORTER=1
@@ -18,26 +19,27 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/venv/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl jq ffmpeg libtbb12 python3 python3-venv \
+        ca-certificates curl jq ffmpeg libtbb12 python3 python3-venv software-properties-common \
+    && add-apt-repository -y "$INTEL_GPU_PPA" \
+    && apt-get install -y --no-install-recommends libze1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Level Zero loader + NPU user-mode driver. Release assets have been shipped both
-# as loose .debs and as a tarball of .debs, so accept either.
+# NPU user-mode driver + compiler. Releases have shipped both loose .debs and a
+# tarball of .debs, so accept either. intel-fw-npu is firmware for the host
+# kernel, not needed in the container.
 RUN set -eux; \
-    fetch_assets() { \
-        repo="$1"; tag="$2"; pattern="$3"; \
-        if [ "$tag" = latest ]; then api="https://api.github.com/repos/$repo/releases/latest"; \
-        else api="https://api.github.com/repos/$repo/releases/tags/$tag"; fi; \
-        curl -fsSL "$api" | jq -r '.assets[].browser_download_url' | grep -E "$pattern" \
-            | while read -r url; do curl -fsSLO "$url"; done; \
-    }; \
+    if [ "$NPU_DRIVER_TAG" = latest ]; then api=https://api.github.com/repos/intel/linux-npu-driver/releases/latest; \
+    else api="https://api.github.com/repos/intel/linux-npu-driver/releases/tags/$NPU_DRIVER_TAG"; fi; \
     mkdir /tmp/drv && cd /tmp/drv; \
-    fetch_assets intel/level-zero "$LEVEL_ZERO_TAG" 'level-zero_[^/]*u24\.04_amd64\.deb$'; \
-    fetch_assets intel/linux-npu-driver "$NPU_DRIVER_TAG" '(ubuntu24\.?04[^/]*\.deb|ubuntu2404[^/]*\.tar\.gz)$'; \
-    for t in *.tar.gz; do [ -e "$t" ] && tar -xzf "$t"; done; \
-    # intel-fw-npu is host-side firmware; the container only needs the user-space libs.
-    find . -name '*.deb' ! -name 'intel-fw-npu*' -print0 | xargs -0 apt-get install -y --no-install-recommends; \
-    ls /usr/lib/x86_64-linux-gnu | grep -E 'libze_(loader|intel_npu)' ; \
+    curl -fsSL --retry 3 "$api" | jq -r '.assets[].browser_download_url' \
+        | grep -E 'ubuntu[._-]?24\.?04[^/]*\.(deb|tar\.gz)$' | grep -v dbgsym > urls; \
+    test -s urls; \
+    while read -r url; do curl -fsSLO --retry 3 "$url"; done < urls; \
+    for t in *.tar.gz; do if [ -e "$t" ]; then tar -xzf "$t"; fi; done; \
+    apt-get update; \
+    find . -name '*.deb' ! -name 'intel-fw-npu*' ! -name '*dbgsym*' -print0 \
+        | xargs -0 apt-get install -y --no-install-recommends; \
+    ls /usr/lib/x86_64-linux-gnu | grep -E 'libze_intel_(npu|vpu)'; \
     cd / && rm -rf /tmp/drv /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv

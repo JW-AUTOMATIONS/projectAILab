@@ -13,61 +13,61 @@ A local AI workstation stack for **Intel Core Ultra 9 185H + NVIDIA RTX 5060 Ti 
 The design, the sizing table and a fact-check of the original report are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Install
+
+On a fresh **Ubuntu 24.04 LTS** (Server or Desktop):
+
+```bash
+git clone https://github.com/JW-AUTOMATIONS/projectAILab.git && cd projectAILab
+./install.sh --dry-run      # optional: shows every change without making it
+sudo ./install.sh           # drivers, docker, storage, tuning, images, service
+sudo reboot                 # the stack starts by itself afterwards
+sudo /opt/ailab/install.sh verify
+```
+
+The installer sets up the HWE kernel and the NVIDIA open driver (≥ 570,
+signed modules). It also installs the Intel GPU compute/media/Vulkan stack,
+the Intel NPU driver and firmware, Docker plus the NVIDIA Container Toolkit,
+the optional data NVMe and LACP bond, CPU/power tuning, and the
+`ailab.service` systemd unit. Every stage is idempotent and can be re-run on
+its own.
+
+**[docs/INSTALL.md](docs/INSTALL.md)** covers the full walkthrough: BIOS
+settings, Ubuntu install choices, configuration (`install.conf.example`),
+day-to-day operations and troubleshooting.
+
+When it's running:
+
+* Open WebUI: `http://<host>:3000`. Models `main` and `aux` appear
+  automatically. RAG embeddings and the microphone button use the NPU.
+* AnythingLLM: add `COMPOSE_PROFILES=anythingllm` with `ailab edit`, then open
+  `http://<host>:3001`.
+* `ailab status | logs <svc> | bench | check | edit | update`
+
 ## Layout
 
 ```
+install.sh, installer/        staged, idempotent host installer (see docs/INSTALL.md)
+install.conf.example          installer settings
 compose.yaml                  services, device passthrough, cpusets
-.env.example                  model choices and tunables
+.env.example                  model choices and tunables (installer writes .env)
 docker/llama-cuda/            llama.cpp built for Blackwell (CUDA 12.8, sm_120)
 services/npu-worker/          OpenAI-compatible embeddings + STT on the NPU
 host/scripts/check-host.sh    preflight: drivers, devices, firmware, PCIe link, bond
 host/scripts/gen-env.sh       detects P/E/LP-E cpusets, Intel render node, render GID
-host/netplan/60-bond0.yaml    2× I226-V LACP bond
+host/netplan/60-bond0.yaml    reference LACP bond (the installer generates its own)
+scripts/ailab                 day-2 CLI, installed as /usr/local/bin/ailab
 scripts/bench.sh              prompt/generation t/s of the running servers
 ```
-
-## Host prerequisites (Ubuntu 24.04)
-
-1. Kernel 6.8 or newer (the 24.04 HWE kernel is fine).
-2. NVIDIA driver **570 or newer, open kernel modules**, for example
-   `sudo ubuntu-drivers install --gpgpu nvidia:570-server-open` or a newer
-   `-open` branch.
-3. Docker Engine and the
-   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
-   then run `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`.
-4. NPU firmware on the host: `intel-fw-npu` from
-   [intel/linux-npu-driver](https://github.com/intel/linux-npu-driver/releases),
-   or a recent `linux-firmware`. Also add the udev rule in
-   [ARCHITECTURE.md](docs/ARCHITECTURE.md#device-passthrough) if
-   `/dev/accel/accel0` isn't in the `render` group.
-5. Optional: set up the network bond from `host/netplan/60-bond0.yaml`. Edit
-   the interface names first.
-
-## Quick start
-
-```bash
-host/scripts/check-host.sh                # fix any FAIL lines first
-cp .env.example .env
-host/scripts/gen-env.sh --write .env      # cpusets, render node/GID, WebUI secret
-docker compose build                      # llama.cpp CUDA + npu-worker images
-docker compose up -d
-docker compose logs -f llm-main           # first start downloads the model (~63 GB)
-```
-
-* Open WebUI: `http://<host>:3000`. Models `main` and `aux` appear
-  automatically. RAG embeddings and the microphone button use the NPU.
-* AnythingLLM: `docker compose --profile anythingllm up -d`, then open
-  `http://<host>:3001`.
-* NPU status: `curl localhost:8083/health` returns `{"embed": "NPU", "stt": "NPU"}`
-  (or `"CPU"` if it fell back).
 
 ## Tuning
 
 Pick a model and a `MAIN_N_CPU_MOE` value, then measure:
 
 ```bash
-docker compose up -d llm-main && scripts/bench.sh 8081 2048 256
-nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+ailab edit                  # MAIN_MODEL_ARGS / MAIN_N_CPU_MOE
+ailab bench 8081 2048 256
+ailab status                # VRAM used/total
 ```
 
 Lower `MAIN_N_CPU_MOE` (more expert layers on the GPU) until VRAM is about 90%
