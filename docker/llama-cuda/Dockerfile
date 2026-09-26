@@ -9,8 +9,9 @@ FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS build
 ARG LLAMA_CPP_REF=master
 ARG CUDA_ARCH=120
 
+# libssl-dev: -hf downloads from Hugging Face go over HTTPS via OpenSSL.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git cmake build-essential libcurl4-openssl-dev ca-certificates \
+        git cmake build-essential libssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/ggml-org/llama.cpp /src \
@@ -24,14 +25,17 @@ RUN cmake -B build \
         -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCH}" \
         -DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX_VNNI=ON \
         -DBUILD_SHARED_LIBS=OFF \
-        -DLLAMA_CURL=ON \
+        -DLLAMA_OPENSSL=ON \
         -DCMAKE_BUILD_TYPE=Release \
+    # Without OpenSSL cmake only warns and the server can't download models.
+    && { grep -q '^OPENSSL_SSL_LIBRARY:FILEPATH=/' build/CMakeCache.txt \
+         || { echo "OpenSSL not found: llama-server would have no HTTPS" >&2; exit 1; }; } \
     && cmake --build build -j"$(nproc)" --target llama-server llama-bench llama-cli
 
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libcurl4t64 libgomp1 curl ca-certificates \
+        libssl3t64 libgomp1 curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/build/bin/llama-server /src/build/bin/llama-bench /src/build/bin/llama-cli /usr/local/bin/
