@@ -1,0 +1,3 @@
+# Everything here runs on Linux. Keep LF line endings even in a Windows
+# checkout, so a copied tree (USB, scp, WSL) still runs.
+* text=auto eol=lf
