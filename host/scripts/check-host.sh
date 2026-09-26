@@ -77,7 +77,7 @@ compgen -G '/lib/firmware/updates/intel/vpu/vpu_37xx*' >/dev/null || compgen -G 
 section "Storage / network"
 for d in /sys/block/nvme*n1; do
   [[ -e $d ]] || continue
-  printf '  INFO %s %s\n' "$(basename "$d")" "$(cat "$d/device/model" 2>/dev/null | xargs)"
+  printf '  INFO %s %s\n' "$(basename "$d")" "$(xargs 2>/dev/null <"$d/device/model")"
 done
 if [[ -r /proc/net/bonding/bond0 ]]; then
   mode=$(awk -F': ' '/Bonding Mode/ {print $2}' /proc/net/bonding/bond0)
