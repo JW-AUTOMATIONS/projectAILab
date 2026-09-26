@@ -64,7 +64,7 @@ Get the repository onto the machine. It's private, so use a GitHub personal
 access token or `gh auth login`:
 
 ```bash
-sudo apt install -y git
+sudo apt install -y git jq
 git clone https://github.com/JW-AUTOMATIONS/projectAILab.git ~/projectAILab
 cd ~/projectAILab
 ```

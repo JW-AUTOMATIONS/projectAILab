@@ -100,7 +100,16 @@ ensure_prereqs() {
   local missing=() c
   for c in curl jq rsync gpg; do command -v "$c" >/dev/null || missing+=("$c"); done
   ((${#missing[@]})) || return 0
-  [[ $DRY_RUN == 1 ]] && { warn "missing tools (installed on a real run): ${missing[*]}"; return 0; }
+  if [[ $DRY_RUN == 1 ]]; then
+    # A dry run installs nothing, but still reads GitHub release data (curl + jq).
+    local need=()
+    for c in curl jq; do
+      if [[ " ${missing[*]} " == *" $c "* ]]; then need+=("$c"); fi
+    done
+    ((${#need[@]} == 0)) || die "a dry run needs ${need[*]}; install first: sudo apt install -y ${need[*]}"
+    warn "missing tools (installed on a real run): ${missing[*]}"
+    return 0
+  fi
   log "installing prerequisites: ${missing[*]}"
   apt-get update -q
   apt-get install -y -q --no-install-recommends ca-certificates curl jq rsync gnupg
